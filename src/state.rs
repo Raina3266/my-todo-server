@@ -1,13 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use dashmap::{DashMap, mapref::one::RefMut};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
 
 //crud
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Todo {
     pub id: Uuid,
     pub message: String,
