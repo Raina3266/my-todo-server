@@ -5,14 +5,22 @@ pub type Result<T, E = Error> = ::core::result::Result<T, E>;
 #[derive(Debug)]
 pub enum Error {
     TodoNotFound,
+    DatabaseError,
     Unexpected,
+}
+
+impl From<diesel::result::Error> for Error {
+    fn from(_value: diesel::result::Error) -> Self {
+        Self::DatabaseError
+    }
 }
 
 impl Error {
     pub fn code_str(&self) -> &'static str {
         match self {
             Self::TodoNotFound => "To do not found",
-            Self::Unexpected => "unexpected",
+            Self::Unexpected => "Unexpected",
+            Self::DatabaseError => "Database error",
         }
     }
 }
@@ -30,6 +38,7 @@ impl IntoResponse for Error {
         let status = match self {
             Self::TodoNotFound => StatusCode::NOT_FOUND,
             Self::Unexpected => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::DatabaseError => todo!(),
         };
         
         let body = serde_json::json!({

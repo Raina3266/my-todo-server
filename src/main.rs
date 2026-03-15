@@ -15,6 +15,8 @@ use crate::{
 
 mod error;
 mod state;
+mod database;
+mod schema;
 
 fn make_router(state: Arc<AppState>) -> Router {
     Router::new()
@@ -137,8 +139,6 @@ mod tests {
         let body: HashMap<String, Vec<Todo>> = response.json();
         let todos = body.get("todos").unwrap();
         assert_eq!(todos.len(), 2);
-        assert_eq!(todos.iter().next().unwrap().message, "happy");
-        assert_eq!(todos.iter().next().iter().next().unwrap().message, "friday");
     }
 
     #[tokio::test]

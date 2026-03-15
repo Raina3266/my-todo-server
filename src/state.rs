@@ -1,63 +1,74 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use dashmap::{DashMap, mapref::one::RefMut};
+use crate::database::Todo;
+use dashmap::mapref::one::RefMut;
+use diesel::{ExpressionMethods, Insertable, PgConnection, QueryDsl, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::error::{Error, Result};
+use crate::{
+    database::establish_connection,
+    error::{Error, Result},
+};
 
 //crud
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Todo {
-    pub id: Uuid,
-    pub message: String,
-}
-
-impl Todo {
-    fn new(message: String) -> Todo {
-        Todo {
-            id: Uuid::new_v4(),
-            message,
-        }
-    }
-}
 
 pub struct AppState {
-    todos: DashMap<Uuid, Todo>,
+    db: PgConnection,
 }
 
 impl AppState {
     pub fn new() -> Arc<Self> {
         AppState {
-            todos: DashMap::new(),
+            db: establish_connection(),
         }
         .into()
     }
 
-    pub fn create_todo(&self, message: String) -> Uuid {
-        let new_todo = Todo::new(message);
+    pub fn create_todo(&mut self, msg: String) -> Result<Uuid> {
+        use crate::schema::todos::dsl::*;
+        let new_todo = Todo::new(msg);
         let new_uuid = new_todo.id;
-        self.todos.insert(new_uuid, new_todo);
-        new_uuid
+
+        diesel::insert_into(todos)
+            .values(new_todo)
+            .execute(&mut self.db)?;
+
+        Ok(new_uuid)
     }
 
-    pub fn list_todos(&self) -> impl Iterator<Item = Todo> {
-        self.todos.iter().map(|r| r.value().clone())
+    pub fn list_todos(&mut self) -> Result<Vec<Todo>> {
+        use crate::schema::todos::dsl::*;
+
+        let all_todos = todos.load(&mut self.db)?;
+        Ok(all_todos)
     }
 
-    pub fn update_todo(&self, id: Uuid, new_message: String) -> Result<()> {
-        let mut old_todo = self.find_todo_with_id(id)?;
-        old_todo.message = new_message;
+    pub fn update_todo(&mut self, target_id: Uuid, new_message: String) -> Result<()> {
+        use crate::schema::todos::dsl::*;
+
+        diesel::update(todos.filter(id.eq(target_id)))
+            .set(message.eq(new_message))
+            .execute(&mut self.db)?;
 
         Ok(())
     }
 
-    pub fn find_todo_with_id(&self, id: Uuid) -> Result<RefMut<'_, Uuid, Todo>> {
-        self.todos.get_mut(&id).ok_or(Error::TodoNotFound)
+    pub fn find_todo_with_id(&mut self, target_id: Uuid) -> Result<Option<Todo>> {
+        use crate::schema::todos::dsl::*;
+
+        match todos.find(target_id).first(&mut self.db) {
+            Ok(target_todo) => Ok(Some(target_todo)),
+            Err(diesel::result::Error::NotFound) => Ok(None),
+            _ => Err(Error::DatabaseError),
+        }
     }
 
-    pub fn delete_todo(&self, id: Uuid) -> Result<()> {
-        self.todos.remove(&id).ok_or(Error::TodoNotFound)?;
+    pub fn delete_todo(&mut self, target_id: Uuid) -> Result<()> {
+        use crate::schema::todos::dsl::*;
+
+        diesel::delete(todos.filter(id.eq(target_id))).execute(&mut self.db)?;
+
         Ok(())
     }
 }
@@ -86,15 +97,17 @@ mod tests {
         state.update_todo(id, updated_message.clone()).unwrap();
         assert_eq!(state.list_todos().count(), 1);
         assert_eq!(state.list_todos().next().unwrap().message, updated_message);
-        
+
         // use wrong id to update
-        state.update_todo(wrong_id, updated_message.clone()).unwrap_err();
+        state
+            .update_todo(wrong_id, updated_message.clone())
+            .unwrap_err();
 
         // delete_todo
         state.delete_todo(id).unwrap();
         assert!(state.find_todo_with_id(id).is_err());
         assert_eq!(state.list_todos().count(), 0);
-        
+
         // use wrong id to delete
         state.delete_todo(wrong_id).unwrap_err();
     }
